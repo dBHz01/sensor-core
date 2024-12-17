@@ -1,7 +1,7 @@
 import time
 import asyncio
 import argparse
-from ble_ring import BLERing, scan_rings
+from ..ble_ring_v1 import BLERing
 from threading import Thread
 
 def connect(ring):
