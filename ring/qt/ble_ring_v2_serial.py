@@ -133,7 +133,7 @@ class BLERing():
         if data[2] == 0x40 and data[3] == 0x06:
             if len(data) >= self.package_length:
                 imu_datas = []
-                for i in range(5, self.package_length - 1, 12):
+                for i in range(4 + len(data) % 2, self.package_length - 1, 12):
                     acc_x, acc_y, acc_z = struct.unpack("hhh", data[i : i + 6])
                     acc_x, acc_y, acc_z = (
                         acc_x / 1000 * 9.8,
@@ -151,7 +151,7 @@ class BLERing():
                     # change axis
                     # imu_data = IMUData(acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z, int(time.time() * 1e3))
                     imu_data = IMUData(
-                        -acc_y, acc_z, -acc_x, -gyr_y, gyr_z, -gyr_x, int(time.time() * 1e3)
+                        -acc_y, acc_z, -acc_x, -gyr_y, gyr_z, -gyr_x, time.time()
                     )
                     imu_datas.append(imu_data)
                 imu_datas[4].gyr_z = (imu_datas[3].gyr_z + imu_datas[5].gyr_z) / 2

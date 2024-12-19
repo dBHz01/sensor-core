@@ -174,7 +174,7 @@ class BLERing():
                     # change axis
                     # imu_data = IMUData(acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z, int(time.time() * 1e3))
                     imu_data = IMUData(
-                        -acc_y, acc_z, -acc_x, -gyr_y, gyr_z, -gyr_x, int(time.time() * 1e3)
+                        -acc_y, acc_z, -acc_x, -gyr_y, gyr_z, -gyr_x, time.time()
                     )
                     imu_datas.append(imu_data)
                 imu_datas[4].gyr_z = (imu_datas[3].gyr_z + imu_datas[5].gyr_z) / 2

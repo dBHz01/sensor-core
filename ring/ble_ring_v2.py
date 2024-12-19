@@ -144,7 +144,7 @@ class BLERing:
         if data[2] == 0x40 and data[3] == 0x06:
             if len(data) > 20:
                 imu_data = []
-                for i in range(4, len(data), 12):
+                for i in range(4 + len(data) % 2, len(data), 12):
                     acc_x, acc_y, acc_z = struct.unpack("hhh", data[i:i+6])
                     acc_x, acc_y, acc_z = acc_x/1e3*9.8, acc_y/1e3*9.8, acc_z/1e3*9.8
                     gyr_x, gyr_y, gyr_z = struct.unpack("hhh", data[i+6:i+12])
@@ -204,12 +204,12 @@ class BLERing:
             #   callback(self.index)
                 callback()
 
-        # while True:
-        #     if not self.client.is_connected:
-        #         self.connected = False
-        #         # print("connetion closed")
-        #         break
-        #     await asyncio.sleep(2.0)
+        while True:
+            if not self.client.is_connected:
+                self.connected = False
+                print("connetion closed")
+                break
+            await asyncio.sleep(2.0)
 
 
     async def disconnect(self):

@@ -1,7 +1,10 @@
 import time
 import asyncio
 import argparse
-from ..ble_ring_v1 import BLERing
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+from ble_ring_v1 import BLERing
 from threading import Thread
 
 def connect(ring):

@@ -1,10 +1,12 @@
 import time
 import asyncio
 import struct
-from bleak import BleakScanner, BleakClient
 import queue
-from types import FunctionType
+
 from .utils.imu_data import IMUData
+
+from bleak import BleakScanner, BleakClient
+from types import FunctionType
 
 class BLERing:
   EDPT_QUERY_SS			          = 0
@@ -105,7 +107,7 @@ class BLERing:
           struct.unpack("f", imu_frame[20:24])[0],
           struct.unpack("f", imu_frame[24:28])[0],
         #   struct.unpack("Q", imu_frame[28:36])[0]
-          int(time.time() * 1e3)
+          time.time()
         )
         crc = self.crc16(imu_frame, offset=4)
         try:
