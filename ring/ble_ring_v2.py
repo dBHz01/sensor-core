@@ -8,7 +8,10 @@ from types import FunctionType
 from threading import Thread
 from typing import Tuple
 
-from .utils.imu_data import IMUData
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), "."))
+from utils.imu_data import IMUData
 
 
 class NotifyProtocol:
@@ -21,6 +24,7 @@ class NotifyProtocol:
     GET_BATTERY_STATUS = bytearray([0x00, 0x00, 0x12, 0x01])
     OPEN_6AXIS_IMU = bytearray([0x00, 0x00, 0x40, 0x06])
     CLOSE_6AXIS_IMU = bytearray([0x00, 0x00, 0x40, 0x00])
+    CALIB_IMU = bytearray([0x00, 0x00, 0x40, 0x02])
     GET_TOUCH = bytearray([0x00, 0x00, 0x61, 0x00])
     OPEN_AUDIO = bytearray([0x00, 0x00, 0x71, 0x00, 0x01])
     CLOSE_AUDIO = bytearray([0x00, 0x00, 0x71, 0x00, 0x00])
@@ -57,6 +61,7 @@ class BLERing:
         self.tap_thread = Thread(target=self.tap_func)
         self.tap_thread.daemon = True
         self.tap_thread.start()
+        self.last_tap_time = 0
 
         # data
         self.all_imu_data = []
@@ -113,7 +118,7 @@ class BLERing:
                 1 if data[1] & 0x08 else 0,
                 1 if data[1] & 0x20 else 0,
             ),
-            time.time(),
+            time.perf_counter(),
         ]
         self.touch_history.append(new_touch)
         if new_touch[0] == 0:
@@ -137,6 +142,16 @@ class BLERing:
                 if self.touch_callback is not None:
                     self.touch_callback(self.index, 2) # long-touch
                 self.is_holding = True
+
+    def _detect_double_tap_with_tap(self):
+        double_tapped = False
+        if time.perf_counter() - self.last_tap_time < 0.5:
+            double_tapped = True
+            if self.touch_callback is not None:
+                self.touch_callback(self.index, 1) # double-tap
+        self.last_tap_time = time.perf_counter()
+        if double_tapped:
+            self.last_tap_time = 0
 
 
     def notify_callback(self, sender, data: bytearray):
@@ -167,6 +182,13 @@ class BLERing:
 
         elif data[2] == 0x61 and data[3] == 0x1:
             self._detect_touch_events(data[5:])
+
+        elif data[2] == 0x61 and data[3] == 0x2:
+            if data[4] in [0, 3, 4]:
+                self._detect_double_tap_with_tap()
+            elif data[4] == 1:
+                if self.touch_callback is not None:
+                    self.touch_callback(self.index, 2)
 
         elif data[2] == 0x12 and data[3] == 0x0:
             battery_level = data[4]
@@ -211,6 +233,18 @@ class BLERing:
                 break
             await asyncio.sleep(2.0)
 
+    
+    async def send_command(self, command: bytearray):
+        await self.client.write_gatt_char(NotifyProtocol.WRITE_CHARACTERISTIC, command)
+        await asyncio.sleep(0.1)
+
+
+    async def calibrate_imu(self):
+        await self.send_command(NotifyProtocol.CALIB_IMU)
+        print("Calibrating IMU...")
+        await asyncio.sleep(3.0)
+        print("Calibration done")
+        
 
     async def disconnect(self):
         await self.client.stop_notify(NotifyProtocol.READ_CHARACTERISTIC)
