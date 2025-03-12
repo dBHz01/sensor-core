@@ -25,6 +25,7 @@ class NotifyProtocol:
     OPEN_6AXIS_IMU = bytearray([0x00, 0x00, 0x40, 0x06])
     CLOSE_6AXIS_IMU = bytearray([0x00, 0x00, 0x40, 0x00])
     CALIB_IMU = bytearray([0x00, 0x00, 0x40, 0x02])
+    CALIB_TIME = bytearray([0x00, 0x00, 0x99, 0x00])
     GET_TOUCH = bytearray([0x00, 0x00, 0x61, 0x00])
     OPEN_AUDIO = bytearray([0x00, 0x00, 0x71, 0x00, 0x01])
     CLOSE_AUDIO = bytearray([0x00, 0x00, 0x71, 0x00, 0x00])
@@ -63,8 +64,10 @@ class BLERing:
         self.tap_thread.start()
         self.last_tap_time = 0
 
-        # data
-        self.all_imu_data = []
+        # timestamp related
+        self.ring_timestamps = []
+        self.end_calib_timestamps = []
+        self.start_calib_timestamps = []
 
 
     @property
@@ -75,7 +78,6 @@ class BLERing:
     def on_disconnect(self, clients):
         # print('Disconnected')
         pass
-
 
     def tap_func(self):
         counter = -1
@@ -155,22 +157,37 @@ class BLERing:
 
 
     def notify_callback(self, sender, data: bytearray):
+        # print(len(data), data)
         bias = self.gyro_bias
         if data[2] == 0x40 and data[3] == 0x06:
             if len(data) > 20:
                 imu_data = []
-                for i in range(4 + len(data) % 2, len(data), 12):
+                head_length = 4 + len(data) % 2
+
+                imu_start_time = 0
+                imu_end_time = 0
+                if (len(data) - head_length) % 12 != 0:
+                    # end with 2 timestamps
+                    imu_start_time = struct.unpack("i", data[-8:-4])[0]
+                    imu_end_time = struct.unpack("i", data[-4:])[0]
+                    imu_packet_num = (len(data) - head_length - 8) // 12
+                else:
+                    imu_packet_num = (len(data) - head_length) // 12
+                
+                for i in range(head_length, len(data), 12):
+                    if len(data) - i < 12:
+                        break
                     acc_x, acc_y, acc_z = struct.unpack("hhh", data[i:i+6])
                     acc_x, acc_y, acc_z = acc_x/1e3*9.8, acc_y/1e3*9.8, acc_z/1e3*9.8
                     gyr_x, gyr_y, gyr_z = struct.unpack("hhh", data[i+6:i+12])
                     gyr_x, gyr_y, gyr_z = gyr_x/180*math.pi, gyr_y/180*math.pi, gyr_z/180*math.pi,
-                    # change axis
-                    timestamp = time.perf_counter()
+                    if imu_start_time != 0 and imu_end_time != 0:
+                        timestamp = imu_start_time + ((imu_end_time - imu_start_time) / (imu_packet_num - 1)) * ((i - head_length) // 12)
+                    else:
+                        timestamp = time.perf_counter()
                     imu = IMUData(-1 * acc_y, acc_z, -1 * acc_x,
                         -1 * gyr_y - bias[0], gyr_z - bias[1], -1 * gyr_x - bias[2], timestamp)
                     imu_data.append(imu)
-                imu_data[4].gyr_z = (imu_data[3].gyr_z + imu_data[5].gyr_z) / 2
-                self.all_imu_data.extend(imu_data)
                 
                 # IMU callback function
                 if self.imu_callback is not None:
@@ -189,10 +206,18 @@ class BLERing:
             elif data[4] == 1:
                 if self.touch_callback is not None:
                     self.touch_callback(self.index, 2)
+            else:
+                if self.touch_callback is not None:
+                    self.touch_callback(self.index, data[4])
 
         elif data[2] == 0x12 and data[3] == 0x0:
             battery_level = data[4]
             print(f"Ring {self.index} battery level: {battery_level}")
+
+        elif data[2] == 0x99 and data[3] == 0x0:
+            # timestamp
+            self.end_calib_timestamps.append(time.perf_counter())
+            self.ring_timestamps.append(struct.unpack("i", data[4:])[0] / 16384)
 
 
     async def connect(self, callback: FunctionType = None):
@@ -244,18 +269,20 @@ class BLERing:
         print("Calibrating IMU...")
         await asyncio.sleep(3.0)
         print("Calibration done")
-        
+
+    
+    async def calib_time(self):
+        start_time = time.perf_counter()
+        await self.client.write_gatt_char(NotifyProtocol.WRITE_CHARACTERISTIC, NotifyProtocol.CALIB_TIME)
+        end_time = time.perf_counter()
+        self.start_calib_timestamps.append((start_time + end_time) / 2)
+
 
     async def disconnect(self):
         await self.client.stop_notify(NotifyProtocol.READ_CHARACTERISTIC)
         await self.client.disconnect()
         print(f"Disconnected from {self.address}")
-        
     
-    def get_imu_data(self): return self.all_imu_data
-
-    def clear_imu_data(self): self.all_imu_data.clear()
-
 
 def imu_callback(name, data):
     print(f"[{name}]: {data}")
