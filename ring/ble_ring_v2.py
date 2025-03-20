@@ -22,7 +22,7 @@ class NotifyProtocol:
     GET_HARDWARE_VERSION = bytearray([0x00, 0x00, 0x11, 0x01])
     GET_BATTERY_LEVEL = bytearray([0x00, 0x00, 0x12, 0x00])
     GET_BATTERY_STATUS = bytearray([0x00, 0x00, 0x12, 0x01])
-    OPEN_6AXIS_IMU = bytearray([0x00, 0x00, 0x40, 0x06])
+    OPEN_6AXIS_IMU = bytearray([0x00, 0x00, 0x40, 0x06, 0x00, 0x07, 0x00, 0x07, 0x10])
     CLOSE_6AXIS_IMU = bytearray([0x00, 0x00, 0x40, 0x00])
     CALIB_IMU = bytearray([0x00, 0x00, 0x40, 0x02])
     CALIB_TIME = bytearray([0x00, 0x00, 0x99, 0x00])
@@ -159,7 +159,23 @@ class BLERing:
     def notify_callback(self, sender, data: bytearray):
         # print(len(data), data)
         bias = self.gyro_bias
+        if data[2] == 0x62 and data[3] == 0x1:
+            print('呼吸灯结果')
+        if data[2] == 0x62 and data[3] == 0x2:
+            print('自定义灯结果')
+        if data[2] == 0x62 and data[3] == 0x3:
+            print('自定义灯pwm空闲结果')
+
+        if data[2] == 0x10 and data[3] == 0x0:
+            print(data[4])
+        if data[2] == 0x11 and data[3] == 0x0:
+            print('Software version:', data[4:])
+        if data[2] == 0x11 and data[3] == 0x1:
+            print('Hardware version:', data[4:])
+
         if data[2] == 0x40 and data[3] == 0x06:
+            acc_scale = 32768/16 * (2 ** ((data[4] >> 2) & 3)) / 9.8
+            gyr_scale = 32768/2000 * (2 ** (data[4] & 3)) / (math.pi / 180)
             if len(data) > 20:
                 imu_data = []
                 head_length = 4 + len(data) % 2
@@ -178,9 +194,9 @@ class BLERing:
                     if len(data) - i < 12:
                         break
                     acc_x, acc_y, acc_z = struct.unpack("hhh", data[i:i+6])
-                    acc_x, acc_y, acc_z = acc_x/1e3*9.8, acc_y/1e3*9.8, acc_z/1e3*9.8
+                    acc_x, acc_y, acc_z = acc_x / acc_scale, acc_y / acc_scale, acc_z / acc_scale
                     gyr_x, gyr_y, gyr_z = struct.unpack("hhh", data[i+6:i+12])
-                    gyr_x, gyr_y, gyr_z = gyr_x/180*math.pi, gyr_y/180*math.pi, gyr_z/180*math.pi,
+                    gyr_x, gyr_y, gyr_z = gyr_x / gyr_scale, gyr_y / gyr_scale, gyr_z / gyr_scale,
                     if imu_start_time != 0 and imu_end_time != 0:
                         timestamp = imu_start_time + ((imu_end_time - imu_start_time) / (imu_packet_num - 1)) * ((i - head_length) // 12)
                     else:
