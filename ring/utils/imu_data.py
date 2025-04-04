@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import math
 import numpy as np
-from multipledispatch import dispatch
 
 class IMUData():
-    @dispatch(float, float, float, float, float, float, float)
     def __init__(self, acc_x:float, acc_y:float, acc_z:float,
             gyr_x:float, gyr_y:float, gyr_z:float, timestamp:float):
         self.acc_x = acc_x
@@ -24,11 +22,6 @@ class IMUData():
             [-0.0617075, 0.95126743, 0.29782995],
             [ 0.99204434, -0.06982192, 0.00740044]
         ])
-
-    @dispatch(dict)
-    def __init__(self, data:dict):
-        self.__init__(data['acc_x'], data['acc_y'], data['acc_z'],
-                    data['gyr_x'], data['gyr_y'], data['gyr_z'], data['timestamp'])
     
     def __getitem__(self, index):
         return [self.acc_x, self.acc_y, self.acc_z, self.gyr_x, self.gyr_y, self.gyr_z][index]

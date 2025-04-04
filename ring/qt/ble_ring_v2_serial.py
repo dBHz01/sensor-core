@@ -1,5 +1,6 @@
 import math
 import os
+import sys
 import time
 import socket
 import struct
@@ -22,7 +23,6 @@ class BLERing():
         self.address = address
         self.index = index
         self.imu_mode = False
-        self.raw_imu_data = bytearray()
         self.touch_callback = touch_callback
         self.battery_callback = battery_callback
         self.imu_callback = imu_callback
@@ -46,7 +46,13 @@ class BLERing():
         self.tap_thread = Thread(target=self.tap_func)
         self.tap_thread.daemon = True
         self.tap_thread.start()
-        self.package_length = 125
+        self.last_tap_time = 0
+        self.package_length = 133
+
+        # timestamp related
+        self.ring_timestamps = []
+        self.end_calib_timestamps = []
+        self.start_calib_timestamps = []
 
 
     def tap_func(self):
@@ -86,7 +92,7 @@ class BLERing():
         print(x, y, z)
         return [0, 1, 3, 2, 5, -1, 4, -2][x * 4 + y * 2 + z]
     
-    def _detect_touch_events(self, data: bytearray) -> None:
+    def _detect_touch_events(self, data) -> None:
         new_touch = [
             self.get_touch_state(
                 1 if data[1] & 0x02 else 0,
@@ -121,63 +127,105 @@ class BLERing():
                 if self.holding_num > 2:
                     self.touch_callback(self.index, 2) # long-touch
 
-    def notify_callback(self, data: bytearray):
-        if len(self.touch_history) > 0 and time.time() - self.touch_history[-1][-1] > 0.5:
-            # error long-touch
-            if self.holding_num > 2:
-                self.touch_callback(self.index, 5) # release
-            self.holding_num = 0
-            self.touch_history.clear()
+    
+    def _detect_double_tap_with_tap(self):
+        double_tapped = False
+        if time.perf_counter() - self.last_tap_time < 0.5:
+            double_tapped = True
+            if self.touch_callback is not None:
+                self.touch_callback(self.index, 1) # double-tap
+        self.last_tap_time = time.perf_counter()
+        if double_tapped:
+            self.last_tap_time = 0
+    def notify_callback(self, data):
         if len(data) < 4:
             return
+        
+        # if len(data) > 133:
+        #     print('Data length:', len(data))
+        
+        if data[2] == 0x62 and data[3] == 0x1:
+            print('呼吸灯结果')
+        if data[2] == 0x62 and data[3] == 0x2:
+            print('自定义灯结果')
+        if data[2] == 0x62 and data[3] == 0x3:
+            print('自定义灯pwm空闲结果')
+
+        if data[2] == 0x10 and data[3] == 0x0:
+            print(data[4])
+        if data[2] == 0x11 and data[3] == 0x0:
+            print('Software version:', data[4:])
+        if data[2] == 0x11 and data[3] == 0x1:
+            print('Hardware version:', data[4:])
+        
         if data[2] == 0x40 and data[3] == 0x06:
+            acc_scale = 32768/16 * (2 ** ((data[4] >> 2) & 3)) / 9.8
+            gyr_scale = 32768/2000 * (2 ** (data[4] & 3)) / (math.pi / 180)
             if len(data) >= self.package_length:
                 imu_datas = []
-                for i in range(4 + len(data) % 2, self.package_length - 1, 12):
-                    acc_x, acc_y, acc_z = struct.unpack("hhh", data[i : i + 6])
-                    acc_x, acc_y, acc_z = (
-                        acc_x / 1000 * 9.8,
-                        acc_y / 1000 * 9.8,
-                        acc_z / 1000 * 9.8,
-                    )
-                    # if math.sqrt(acc_x * acc_x + acc_y * acc_y + acc_z * acc_z) < 1:
-                    #   continue
-                    gyr_x, gyr_y, gyr_z = struct.unpack("hhh", data[i + 6 : i + 12])
-                    gyr_x, gyr_y, gyr_z = (
-                        gyr_x / 180 * math.pi,
-                        gyr_y / 180 * math.pi,
-                        gyr_z / 180 * math.pi,
-                    )
-                    # change axis
-                    # imu_data = IMUData(acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z, int(time.time() * 1e3))
-                    imu_data = IMUData(
-                        -acc_y, acc_z, -acc_x, -gyr_y, gyr_z, -gyr_x, time.time()
-                    )
-                    imu_datas.append(imu_data)
-                imu_datas[4].gyr_z = (imu_datas[3].gyr_z + imu_datas[5].gyr_z) / 2
-                for i, imu_data in enumerate(imu_datas):
-                    self.imu_callback(self.index, imu_data)
-                    # print(round(acc_x, 2), round(acc_y, 2), round(acc_z, 2), round(gyr_x, 2), round(gyr_y, 2), round(gyr_z, 2))
+                head_length = 4 + len(data) % 2
+
+                imu_start_time = 0
+                imu_end_time = 0
+                if (len(data) - head_length) % 12 != 0:
+                    # end with 2 timestamps
+                    imu_start_time = struct.unpack("i", data[-8:-4])[0]
+                    imu_end_time = struct.unpack("i", data[-4:])[0]
+                    imu_packet_num = (len(data) - head_length - 8) // 12
+                else:
+                    imu_packet_num = (len(data) - head_length) // 12
+                
+                for i in range(head_length, self.package_length, 12):
+                    if self.package_length - i < 12:
+                        break
+                    acc_x, acc_y, acc_z = struct.unpack("hhh", data[i:i+6])
+                    acc_x, acc_y, acc_z = acc_x / acc_scale, acc_y / acc_scale, acc_z / acc_scale
+                    gyr_x, gyr_y, gyr_z = struct.unpack("hhh", data[i+6:i+12])
+                    gyr_x, gyr_y, gyr_z = gyr_x / gyr_scale, gyr_y / gyr_scale, gyr_z / gyr_scale,
+                    if imu_start_time != 0 and imu_end_time != 0:
+                        timestamp = imu_start_time + ((imu_end_time - imu_start_time) / (imu_packet_num - 1)) * ((i - head_length) // 12)
+                    else:
+                        timestamp = time.perf_counter()
+                    imu = IMUData(-1 * acc_y, acc_z, -1 * acc_x, -1 * gyr_y, gyr_z, -1 * gyr_x, timestamp)
+                    imu_datas.append(imu)
+
+                if self.imu_callback is not None:
+                    for i, imu_data in enumerate(imu_datas):
+                        self.imu_callback(self.index, imu_data)
+                        # print(round(acc_x, 2), round(acc_y, 2), round(acc_z, 2), round(gyr_x, 2), round(gyr_y, 2), round(gyr_z, 2))
+                
                 if len(data) > self.package_length:
                     self.notify_callback(data[self.package_length:])
                 
         elif data[2] == 0x61 and data[3] == 0x0:
-            # self.touch_callback(self.index, data[4])
-            # print("Touch", data[4])
-            # print(f"t610 len: {len(data)} {time.time()}")
-            # print(' '.join(f'0x{byte:02x}' for byte in data))
+            pass
+
+        elif data[2] == 0x61 and data[3] == 0x1:
+            self._detect_touch_events(data[5:])
+
+        elif data[2] == 0x61 and data[3] == 0x2:
+            if data[4] in [0, 3, 4]:
+                self._detect_double_tap_with_tap()
+            elif data[4] == 1:
+                if self.touch_callback is not None:
+                    self.touch_callback(self.index, 2)
+            else:
+                if self.touch_callback is not None:
+                    self.touch_callback(self.index, data[4])
             if len(data) > 5:
                 self.notify_callback(data[5:])
-            # pass
 
-        elif data[2] == 0x61 and data[3] == 0x1 and len(data) >= 23:
-            # print(f"touch len: {len(data)} {time.time()}")
-            # print(' '.join(f'0x{byte:02x}' for byte in data))
-            self._detect_touch_events(data[5:])
-            if len(data) > 23:
-                self.notify_callback(data[23:])
-        else:
-            pass
+        elif data[2] == 0x12 and data[3] == 0x0:
+            battery_level = data[4]
+            print(f"Ring {self.index} battery level: {battery_level}")
+            if len(data) > 5:
+                self.notify_callback(data[5:])
+                
+        elif data[2] == 0x99 and data[3] == 0x0:
+            # timestamp
+            self.end_calib_timestamps.append(time.perf_counter())
+            self.ring_timestamps.append(struct.unpack("i", data[4:])[0] / 16384)
+
     
     def kill(self, name):
         try:
@@ -188,9 +236,14 @@ class BLERing():
 
     def launch(self):
         try:
-            subprocess.Popen([os.path.dirname(os.path.abspath(__file__)) + "\\ble_test_tools\\BLEData.exe", str(self.port)])
+            try:
+                bundle_dir = sys._MEIPASS
+                bundle_dir = os.path.join(bundle_dir, "core", "ring", "qt")
+            except Exception as e:
+                bundle_dir = os.path.abspath(os.path.dirname(__file__))
+            subprocess.Popen([os.path.join(bundle_dir, "ble_test_tools", "BLEData.exe"), str(self.port)])
         except Exception as e:
-            # print(e)
+            print(e)
             ...
     def connect(self, callback = None):
         self.connected = False
@@ -210,7 +263,7 @@ class BLERing():
         # callback()
         while True:
             data = conn.recv(1024)
-            print(data)
+            # print(data)
             try:
                 decoded_data = data.decode('utf-8')
                 if (decoded_data == 'Disconnected'):
