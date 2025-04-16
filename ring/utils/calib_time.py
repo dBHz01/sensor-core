@@ -8,6 +8,7 @@ import json
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from ble_ring_v2 import BLERing
 from threading import Thread
+from tqdm import trange
 
 def connect(ring):
     asyncio.run(ring.connect())
@@ -29,7 +30,7 @@ def calib_time(ring_mac):
     pc_timestamps = []
     ring_timestamps = []
     pc_delta_time = []
-    while cnt < calib_packet_num:
+    for _ in trange(calib_packet_num):
         asyncio.run(ring.calib_time())
         time.sleep(calib_packet_interval)
         cnt += 1

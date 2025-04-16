@@ -107,7 +107,7 @@ class BLERing:
           struct.unpack("f", imu_frame[20:24])[0],
           struct.unpack("f", imu_frame[24:28])[0],
         #   struct.unpack("Q", imu_frame[28:36])[0]
-          time.time()
+          time.time() * 16384
         )
         crc = self.crc16(imu_frame, offset=4)
         try:
