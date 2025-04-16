@@ -164,6 +164,16 @@ def getScanDetail(handle):
     error = sensel_lib.senselGetScanDetail(handle, byref(detail))
     return (error, detail.value)
 
+def setMaxFrameRate(handle, frame_rate):
+    c_frame_rate = c_int(frame_rate)
+    error = sensel_lib.senselSetMaxFrameRate(handle, c_frame_rate)
+    return error
+
+def getMaxFrameRate(handle):
+    frame_rate = c_int(0)
+    error = sensel_lib.senselGetMaxFrameRate(handle, byref(frame_rate))
+    return (error, frame_rate.value)
+
 def getSupportedFrameContent(handle):
     content = c_ubyte(0)
     error = sensel_lib.senselGetSupportedFrameContent(handle, byref(content))
