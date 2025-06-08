@@ -60,49 +60,6 @@ class BLERing:
     def on_disconnect(self, clients):
         print("Disconnected")
 
-    def ble_notify_callback(self, sender, data):
-        crc = self.crc16(data)
-        crc_l = crc & 0xFF
-        crc_h = (crc >> 8) & 0xFF
-        if crc_l != data[1] or crc_h != data[2]:
-            print(f"Error: crc is wrong! Data: {data}")
-            return
-
-        match data[0]:
-            case self.EDPT_QUERY_SS:
-                print(f"ring time: {int.from_bytes(data[17:21])}")
-                if self.battery_callback is not None:
-                    self.battery_callback(data[15] & 0xFF)
-            case self.EDPT_OP_GSENSOR_STATE:
-                union_val = (
-                    ((data[6] & 0xFF) << 24)
-                    | ((data[5] & 0xFF) << 16)
-                    | ((data[4] & 0xFF) << 8)
-                    | (data[3] & 0xFF)
-                )
-                chip_state = union_val & 0x1
-                work_state = (union_val >> 1) & 0x1
-                step_count = (union_val >> 8) & 0x00FFFFFF
-                print("gsensor_state", chip_state, work_state, step_count)
-            case self.EDPT_OP_GSENSOR_DATA:
-                data_type = data[3]
-                print(data_type)
-            case self.EDPT_OP_TOUCH_ACTION:
-                op_type = data[3] & 0x3
-                report_path = (data[3] >> 2) & 0x3
-                action_code = data[4]
-                if op_type < 2:
-                    if report_path == 0:
-                        print("HID")
-                    elif report_path == 1:
-                        print("BLE")
-                    else:
-                        print("HID & BLE")
-                elif op_type == 2:
-                    if self.touch_callback != None:
-                        self.touch_callback(self.index, action_code)
-                        # print(f'action code: {action_code}')
-                # print('op_type:', op_type, 'report_path:', report_path, 'action_code', action_code)
 
     def spp_notify_callback(self, sender, data: bytearray):
         if data[0] == 0x19:
