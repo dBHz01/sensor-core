@@ -311,12 +311,12 @@ class BLERing:
                 #   callback(self.index)
                 callback()
 
-        while True:
-            if not self.client.is_connected:
-                self.connected = False
-                print("connetion closed")
-                break
-            await asyncio.sleep(2.0)
+        # while True:
+        #     if not self.client.is_connected:
+        #         self.connected = False
+        #         print("connetion closed")
+        #         break
+        #     await asyncio.sleep(2.0)
 
     async def send_command(self, command: bytearray):
         await self.client.write_gatt_char(NotifyProtocol.WRITE_CHARACTERISTIC, command)

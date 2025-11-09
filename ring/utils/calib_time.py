@@ -10,31 +10,23 @@ from ble_ring_v2 import BLERing
 from threading import Thread
 from tqdm import trange
 
-def connect(ring):
-    asyncio.run(ring.connect())
-
-def calib_time(ring_mac):
-    calib_packet_num = 600
-    calib_packet_interval = 0.05
-    max_calib_delta = 0.014
-    test_packet_num = 10
+async def calib_time(ring_mac):
+    calib_packet_num = 300
+    calib_packet_interval = 0.1
+    max_calib_delta = 0.010
 
     ring = BLERing(ring_mac, index=0)
-    ring_thread = Thread(target=connect, args=(ring,))
-    ring_thread.daemon = True
-    ring_thread.start()
-    while not ring.connected:
-        time.sleep(1)
-    print('Connected')
+    await ring.connect()
+    await asyncio.sleep(1)  # wait for connection to stabilize
     cnt = 0
     pc_timestamps = []
     ring_timestamps = []
     pc_delta_time = []
     for _ in trange(calib_packet_num):
-        asyncio.run(ring.calib_time())
-        time.sleep(calib_packet_interval)
+        await ring.calib_time()
+        await asyncio.sleep(calib_packet_interval)
         cnt += 1
-    time.sleep(2)
+    await asyncio.sleep(1)
     ring_timestamps = np.array(ring.ring_timestamps)
     pc_timestamps = (np.array(ring.start_calib_timestamps) + np.array(ring.end_calib_timestamps)) / 2
     pc_delta_time = np.array(ring.end_calib_timestamps) - np.array(ring.start_calib_timestamps)
@@ -61,6 +53,7 @@ def calib_time(ring_mac):
     print('intercept:', intercept, 'slope:', slope)
 
     # save
+    os.makedirs('data', exist_ok=True)
     with open(f'data/calib_time_{int(time.time())}.json', 'w') as f:
         json.dump({
             'intercept': intercept,
@@ -71,38 +64,11 @@ def calib_time(ring_mac):
             'ring_mac': ring_mac,
         }, f)
 
-    # # plot
-    # import matplotlib.pyplot as plt
-    # plt.plot(pc_timestamps, ring_timestamps, 'ro')
-    # plt.plot(pc_timestamps, [slope * x + intercept for x in pc_timestamps], 'b-')
-    # plt.xlabel('PC timestamp')
-    # plt.ylabel('Ring timestamp')
-    # plt.show()
-
-    # test model
-    # ring.ring_timestamps = []
-    # ring.start_calib_timestamps = []
-    # ring.end_calib_timestamps = []
-    # cnt = 0
-    # perdicted_pc_timestamps = []
-    # while cnt < test_packet_num:
-    #     asyncio.run(ring.calib_time())
-    #     time.sleep(0.1)
-    #     cnt += 1
-    # ring_timestamps = np.array(ring.ring_timestamps)
-    # pc_timestamps = (np.array(ring.start_calib_timestamps) + np.array(ring.end_calib_timestamps)) / 2
-    # pc_delta_time = np.array(ring.end_calib_timestamps) - np.array(ring.start_calib_timestamps)
-
-    # perdicted_pc_timestamps = [slope * x + intercept for x in ring_timestamps]
-
-    # print('pc_timestamps:', pc_timestamps)
-    # print('perdicted_pc_timestamps:', perdicted_pc_timestamps)
-    # print('ring_timestamps:', ring_timestamps)
-    # print('pc_delta_time:', pc_delta_time)
+    await ring.disconnect()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--ring', type=str, required=True)
     args = parser.parse_args()
-    calib_time(args.ring)
+    asyncio.run(calib_time(args.ring))
