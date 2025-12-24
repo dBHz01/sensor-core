@@ -81,6 +81,7 @@ class BLERing:
         self.ring_timestamps = []
         self.end_calib_timestamps = []
         self.start_calib_timestamps = []
+        self.end_indices = []
 
     @property
     def name(self):
@@ -266,6 +267,7 @@ class BLERing:
         elif data[2] == 0x99 and data[3] == 0x0:
             # timestamp
             self.end_calib_timestamps.append(time.perf_counter())
+            self.end_indices.append(struct.unpack("<H", data[0:2])[0])
             self.ring_timestamps.append(struct.unpack("i", data[4:])[0] / 16384)
 
         elif data[2] == 0x71 and data[3] == 0x0:
@@ -344,10 +346,13 @@ class BLERing:
         await self.send_command(NotifyProtocol.CLOSE_6AXIS_IMU)
         print("IMU closed")
 
-    async def calib_time(self):
+    async def calib_time(self, index: int):
+        # convert index to bytearray
+        index = index & 0xFFFF
+        index_bytes = index.to_bytes(2, byteorder='little')
         start_time = time.perf_counter()
         await self.client.write_gatt_char(
-            NotifyProtocol.WRITE_CHARACTERISTIC, NotifyProtocol.CALIB_TIME
+            NotifyProtocol.WRITE_CHARACTERISTIC, index_bytes + NotifyProtocol.CALIB_TIME[2:]
         )
         end_time = time.perf_counter()
         self.start_calib_timestamps.append((start_time + end_time) / 2)

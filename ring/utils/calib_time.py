@@ -23,10 +23,17 @@ async def calib_time(ring_mac):
     ring_timestamps = []
     pc_delta_time = []
     for _ in trange(calib_packet_num):
-        await ring.calib_time()
+        await ring.calib_time(index=cnt)
         await asyncio.sleep(calib_packet_interval)
         cnt += 1
     await asyncio.sleep(1)
+
+    ring.start_calib_timestamps = np.sort(ring.start_calib_timestamps)
+    ring.end_calib_timestamps = np.sort(ring.end_calib_timestamps)
+    ring.end_indices = np.sort(np.array(ring.end_indices))
+    ring.start_calib_timestamps = ring.start_calib_timestamps[ring.end_indices]
+    ring.end_calib_timestamps = ring.end_calib_timestamps[ring.end_indices]
+    
     ring_timestamps = np.array(ring.ring_timestamps)
     pc_timestamps = (np.array(ring.start_calib_timestamps) + np.array(ring.end_calib_timestamps)) / 2
     pc_delta_time = np.array(ring.end_calib_timestamps) - np.array(ring.start_calib_timestamps)
